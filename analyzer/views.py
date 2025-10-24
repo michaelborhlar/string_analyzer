@@ -3,15 +3,13 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.shortcuts import get_object_or_404
 from django.db import IntegrityError
-from django.db.models import Q
-import json
 from .models import StoredString
 from .serializers import StoredStringSerializer
 import hashlib
 import re
 
 
-class CreateStringView(APIView):
+class StringsView(APIView):
     def post(self, request):
         """POST /strings - Create and analyze string"""
         value = request.data.get("value")
@@ -47,24 +45,6 @@ class CreateStringView(APIView):
                 status=status.HTTP_409_CONFLICT
             )
 
-
-class StringDetailView(APIView):
-    def get(self, request, string_value):
-        """GET /strings/{string_value} - Get specific string"""
-        sha256_hash = hashlib.sha256(string_value.encode("utf-8")).hexdigest()
-        obj = get_object_or_404(StoredString, pk=sha256_hash)
-        serializer = StoredStringSerializer(obj)
-        return Response(serializer.data)
-
-    def delete(self, request, string_value):
-        """DELETE /strings/{string_value} - Delete string"""
-        sha256_hash = hashlib.sha256(string_value.encode("utf-8")).hexdigest()
-        obj = get_object_or_404(StoredString, pk=sha256_hash)
-        obj.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-class StringListView(APIView):
     def get(self, request):
         """GET /strings - Get all strings with filtering"""
         queryset = StoredString.objects.all()
@@ -77,7 +57,6 @@ class StringListView(APIView):
         if is_palindrome is not None:
             try:
                 bool_val = str(is_palindrome).lower() in ["true", "1", "yes", "on"]
-                # Filter using JSON field path
                 queryset = queryset.filter(properties__is_palindrome=bool_val)
                 applied_filters["is_palindrome"] = is_palindrome
             except:
@@ -116,7 +95,6 @@ class StringListView(APIView):
         # Apply contains_character filter
         contains_char = params.get("contains_character")
         if contains_char is not None and len(contains_char) == 1:
-            # Filter for character in frequency map
             queryset = queryset.filter(properties__character_frequency_map__has_key=contains_char)
             applied_filters["contains_character"] = contains_char
 
@@ -127,6 +105,22 @@ class StringListView(APIView):
             "count": queryset.count(),
             "filters_applied": applied_filters
         })
+
+
+class StringDetailView(APIView):
+    def get(self, request, string_value):
+        """GET /strings/{string_value} - Get specific string"""
+        sha256_hash = hashlib.sha256(string_value.encode("utf-8")).hexdigest()
+        obj = get_object_or_404(StoredString, pk=sha256_hash)
+        serializer = StoredStringSerializer(obj)
+        return Response(serializer.data)
+
+    def delete(self, request, string_value):
+        """DELETE /strings/{string_value} - Delete string"""
+        sha256_hash = hashlib.sha256(string_value.encode("utf-8")).hexdigest()
+        obj = get_object_or_404(StoredString, pk=sha256_hash)
+        obj.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class NaturalLanguageFilterView(APIView):
@@ -148,22 +142,14 @@ class NaturalLanguageFilterView(APIView):
 
         if "single word" in text:
             parsed_filters["word_count"] = 1
-        elif "two words" in text:
-            parsed_filters["word_count"] = 2
-        elif "three words" in text:
-            parsed_filters["word_count"] = 3
 
         # Handle length queries
         length_match = re.search(r"longer than\s+(\d+)", text)
         if length_match:
             parsed_filters["min_length"] = int(length_match.group(1)) + 1
 
-        length_match = re.search(r"shorter than\s+(\d+)", text)
-        if length_match:
-            parsed_filters["max_length"] = int(length_match.group(1)) - 1
-
         # Handle character queries
-        if "letter z" in text or "containing z" in text:
+        if "letter z" in text:
             parsed_filters["contains_character"] = "z"
         elif "first vowel" in text:
             parsed_filters["contains_character"] = "a"
@@ -189,9 +175,6 @@ class NaturalLanguageFilterView(APIView):
         
         if "min_length" in parsed_filters:
             queryset = queryset.filter(properties__length__gte=parsed_filters["min_length"])
-        
-        if "max_length" in parsed_filters:
-            queryset = queryset.filter(properties__length__lte=parsed_filters["max_length"])
         
         if "contains_character" in parsed_filters:
             queryset = queryset.filter(properties__character_frequency_map__has_key=parsed_filters["contains_character"])
