@@ -54,30 +54,30 @@ class StoredStringViewSet(viewsets.ModelViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def list(self, request, *args, **kwargs):
-    # FIX: Use filter_queryset to apply the filters from get_queryset()
-    queryset = self.filter_queryset(self.get_queryset())
-    serializer = self.get_serializer(queryset, many=True)
-    
-    # Extract applied filters properly
-    applied_filters = {}
-    params = request.query_params
-    
-    if params.get("is_palindrome"):
-        applied_filters["is_palindrome"] = params.get("is_palindrome")
-    if params.get("min_length"):
-        applied_filters["min_length"] = params.get("min_length")
-    if params.get("max_length"):
-        applied_filters["max_length"] = params.get("max_length")
-    if params.get("word_count"):
-        applied_filters["word_count"] = params.get("word_count")
-    if params.get("contains_character"):
-        applied_filters["contains_character"] = params.get("contains_character")
+        # FIX: Use filter_queryset to apply the filters from get_queryset()
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
+        
+        # Extract applied filters properly
+        applied_filters = {}
+        params = request.query_params
+        
+        if params.get("is_palindrome"):
+            applied_filters["is_palindrome"] = params.get("is_palindrome")
+        if params.get("min_length"):
+            applied_filters["min_length"] = params.get("min_length")
+        if params.get("max_length"):
+            applied_filters["max_length"] = params.get("max_length")
+        if params.get("word_count"):
+            applied_filters["word_count"] = params.get("word_count")
+        if params.get("contains_character"):
+            applied_filters["contains_character"] = params.get("contains_character")
 
-    return Response({
-        "data": serializer.data,
-        "count": queryset.count(),  # Use queryset.count() for efficiency
-        "filters_applied": applied_filters
-    })
+        return Response({
+            "data": serializer.data,
+            "count": queryset.count(),  # Use queryset.count() for efficiency
+            "filters_applied": applied_filters
+        })
 
     def get_queryset(self):
         qs = super().get_queryset()
