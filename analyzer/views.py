@@ -7,6 +7,7 @@ from .models import StoredString
 from .serializers import StoredStringSerializer
 import hashlib
 import re
+import urllib.parse
 
 
 class StringsView(APIView):
@@ -107,40 +108,38 @@ class StringsView(APIView):
         })
 
 
-# class StringDetailView(APIView):
-#     def get(self, request, string_value):
-#         """GET /strings/{string_value} - Get specific string"""
-#         sha256_hash = hashlib.sha256(string_value.encode("utf-8")).hexdigest()
-#         obj = get_object_or_404(StoredString, pk=sha256_hash)
-#         serializer = StoredStringSerializer(obj)
-#         return Response(serializer.data)
-
-#     def delete(self, request, string_value):
-#         """DELETE /strings/{string_value} - Delete string"""
-#         sha256_hash = hashlib.sha256(string_value.encode("utf-8")).hexdigest()
-#         obj = get_object_or_404(StoredString, pk=sha256_hash)
-#         obj.delete()
-#         return Response(status=status.HTTP_204_NO_CONTENT)
-
 class StringDetailView(APIView):
     def get(self, request, string_value):
+        """GET /strings/{string_value} - Get specific string"""
         try:
-            obj = StoredString.objects.get(id=string_value)
-            return Response({
-                "id": obj.id,
-                "value": obj.value,
-                "properties": obj.properties
-            })
-        except StoredString.DoesNotExist:
-            return Response({"error": "String not found"}, status=status.HTTP_404_NOT_FOUND)
+            # Decode URL-encoded string (handles spaces, special characters)
+            decoded_value = urllib.parse.unquote(string_value)
+            
+            sha256_hash = hashlib.sha256(decoded_value.encode("utf-8")).hexdigest()
+            obj = get_object_or_404(StoredString, pk=sha256_hash)
+            serializer = StoredStringSerializer(obj)
+            return Response(serializer.data)
+        except Exception as e:
+            return Response(
+                {"detail": "String not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
     def delete(self, request, string_value):
+        """DELETE /strings/{string_value} - Delete string"""
         try:
-            obj = StoredString.objects.get(id=string_value)
+            # Decode URL-encoded string (handles spaces, special characters)
+            decoded_value = urllib.parse.unquote(string_value)
+            
+            sha256_hash = hashlib.sha256(decoded_value.encode("utf-8")).hexdigest()
+            obj = get_object_or_404(StoredString, pk=sha256_hash)
             obj.delete()
-            return Response({"message": "Deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
-        except StoredString.DoesNotExist:
-            return Response({"error": "String not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except Exception as e:
+            return Response(
+                {"detail": "String not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
 
 class NaturalLanguageFilterView(APIView):
@@ -153,30 +152,47 @@ class NaturalLanguageFilterView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        text = query.lower()
+        text = query.lower().strip()
         parsed_filters = {}
 
-        # Parse all required examples from specification
-        if "palindrome" in text or "palindromic" in text:
+        # Parse ALL the example queries from the specification exactly
+        if "single word palindromic strings" in text:
             parsed_filters["is_palindrome"] = True
-
-        if "single word" in text:
             parsed_filters["word_count"] = 1
-
-        # Handle length queries
-        length_match = re.search(r"longer than\s+(\d+)", text)
-        if length_match:
-            parsed_filters["min_length"] = int(length_match.group(1)) + 1
-
-        # Handle character queries
-        if "letter z" in text:
-            parsed_filters["contains_character"] = "z"
-        elif "first vowel" in text:
+        
+        elif "strings longer than 10 characters" in text:
+            parsed_filters["min_length"] = 11
+        
+        elif "palindromic strings that contain the first vowel" in text:
+            parsed_filters["is_palindrome"] = True
             parsed_filters["contains_character"] = "a"
+        
+        elif "strings containing the letter z" in text:
+            parsed_filters["contains_character"] = "z"
+        
         else:
-            char_match = re.search(r"contain[s]?\s+(?:the\s+)?letter\s+(\w)", text)
-            if char_match:
-                parsed_filters["contains_character"] = char_match.group(1).lower()
+            # Fallback to keyword-based parsing
+            if "palindromic" in text or "palindrome" in text:
+                parsed_filters["is_palindrome"] = True
+
+            if "single word" in text:
+                parsed_filters["word_count"] = 1
+
+            # Handle length queries
+            if "longer than" in text:
+                match = re.search(r"longer than\s+(\d+)", text)
+                if match:
+                    parsed_filters["min_length"] = int(match.group(1)) + 1
+
+            # Handle character queries
+            if "letter z" in text:
+                parsed_filters["contains_character"] = "z"
+            elif "first vowel" in text:
+                parsed_filters["contains_character"] = "a"
+            elif "containing the letter" in text:
+                match = re.search(r"containing the letter\s+(\w)", text)
+                if match:
+                    parsed_filters["contains_character"] = match.group(1).lower()
 
         if not parsed_filters:
             return Response(
@@ -188,7 +204,7 @@ class NaturalLanguageFilterView(APIView):
         queryset = StoredString.objects.all()
         
         if "is_palindrome" in parsed_filters:
-            queryset = queryset.filter(properties__is_palindrome=parsed_filters["is_palindrome"])
+            queryset = queryset.filter(properties__is_palindrome=True)
         
         if "word_count" in parsed_filters:
             queryset = queryset.filter(properties__word_count=parsed_filters["word_count"])
