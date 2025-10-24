@@ -10,37 +10,25 @@ import re
 
 
 class StoredStringViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet for the String Analyzer API.
-    Handles create, retrieve, list (with filtering),
-    delete, and natural language filtering.
-    """
-    queryset = StoredString.objects.all().order_by("-created_at")
+    queryset = StoredString.objects.all()
     serializer_class = StoredStringSerializer
-    lookup_field = "value"  # allows using string value in URL
+    lookup_field = "value"
 
-    # ✅ POST /strings/ → create and analyze string
     def create(self, request, *args, **kwargs):
         value = request.data.get("value")
 
         if value is None:
-            return Response(
-                {"detail": "Missing 'value' field."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"detail": "Missing 'value' field."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         if not isinstance(value, str):
-            return Response(
-                {"detail": "'value' must be a string."},
-                status=status.HTTP_422_UNPROCESSABLE_ENTITY
-            )
+            return Response({"detail": "'value' must be a string."},
+                            status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         sha = hashlib.sha256(value.encode("utf-8")).hexdigest()
-
         if StoredString.objects.filter(pk=sha).exists():
-            obj = StoredString.objects.get(pk=sha)
-            serializer = self.get_serializer(obj)
-            return Response(serializer.data, status=status.HTTP_200_OK)
+            return Response({"detail": "String already exists."},
+                            status=status.HTTP_409_CONFLICT)
 
         try:
             stored = StoredString(value=value)
@@ -48,31 +36,34 @@ class StoredStringViewSet(viewsets.ModelViewSet):
             serializer = self.get_serializer(stored)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         except IntegrityError:
-            return Response(
-                {"detail": "Duplicate string."},
-                status=status.HTTP_409_CONFLICT
-            )
+            return Response({"detail": "Duplicate string."},
+                            status=status.HTTP_409_CONFLICT)
 
-    # ✅ GET /strings/{value}/ → retrieve single analyzed string
     def retrieve(self, request, value=None):
         sha = hashlib.sha256(value.encode("utf-8")).hexdigest()
         obj = get_object_or_404(StoredString, pk=sha)
         serializer = self.get_serializer(obj)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        return Response(serializer.data)
 
-    # ✅ DELETE /strings/{value}/ → delete analyzed string
     def destroy(self, request, value=None):
         sha = hashlib.sha256(value.encode("utf-8")).hexdigest()
         obj = StoredString.objects.filter(pk=sha).first()
         if not obj:
-            return Response(
-                {"detail": "String not found."},
-                status=status.HTTP_404_NOT_FOUND
-            )
+            return Response(status=status.HTTP_404_NOT_FOUND)
         obj.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    # ✅ GET /strings/?filters... → support for filters
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        serializer = self.get_serializer(queryset, many=True)
+        filters_applied = dict(request.query_params)
+
+        return Response({
+            "data": serializer.data,
+            "count": len(serializer.data),
+            "filters_applied": filters_applied
+        }, status=status.HTTP_200_OK)
+
     def get_queryset(self):
         qs = super().get_queryset()
         params = self.request.query_params
@@ -97,24 +88,12 @@ class StoredStringViewSet(viewsets.ModelViewSet):
 
         return qs
 
-    # ✅ GET /strings/ → list all or filtered strings
-    def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-        serializer = self.get_serializer(queryset, many=True)
-        return Response({
-            "count": queryset.count(),
-            "results": serializer.data
-        }, status=status.HTTP_200_OK)
-
-    # ✅ GET /strings/filter-by-natural-language/?query=...
     @action(detail=False, methods=["get"], url_path="filter-by-natural-language")
     def filter_by_natural_language(self, request):
         query = request.query_params.get("query")
         if not query:
-            return Response(
-                {"detail": "Query parameter is required."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"detail": "Query parameter is required."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         text = query.lower()
         filters = {}
@@ -134,20 +113,22 @@ class StoredStringViewSet(viewsets.ModelViewSet):
             filters["contains_character"] = match.group(1)
 
         if not filters:
-            return Response(
-                {"detail": "Unable to parse natural language query."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"detail": "Unable to parse natural language query."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
-        self.request._request.GET = filters
-        queryset = self.get_queryset()
+        queryset = self.get_queryset().filter(**{
+            k: v for k, v in filters.items() if not k.startswith("contains_character")
+        })
+
+        if "contains_character" in filters:
+            queryset = queryset.filter(properties__character_frequency_map__has_key=filters["contains_character"])
+
         serializer = self.get_serializer(queryset, many=True)
-
         return Response({
+            "data": serializer.data,
             "count": len(serializer.data),
             "interpreted_query": {
                 "original": query,
                 "parsed_filters": filters
-            },
-            "results": serializer.data
+            }
         }, status=status.HTTP_200_OK)
