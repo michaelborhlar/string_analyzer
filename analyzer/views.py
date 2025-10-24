@@ -107,20 +107,40 @@ class StringsView(APIView):
         })
 
 
+# class StringDetailView(APIView):
+#     def get(self, request, string_value):
+#         """GET /strings/{string_value} - Get specific string"""
+#         sha256_hash = hashlib.sha256(string_value.encode("utf-8")).hexdigest()
+#         obj = get_object_or_404(StoredString, pk=sha256_hash)
+#         serializer = StoredStringSerializer(obj)
+#         return Response(serializer.data)
+
+#     def delete(self, request, string_value):
+#         """DELETE /strings/{string_value} - Delete string"""
+#         sha256_hash = hashlib.sha256(string_value.encode("utf-8")).hexdigest()
+#         obj = get_object_or_404(StoredString, pk=sha256_hash)
+#         obj.delete()
+#         return Response(status=status.HTTP_204_NO_CONTENT)
+
 class StringDetailView(APIView):
     def get(self, request, string_value):
-        """GET /strings/{string_value} - Get specific string"""
-        sha256_hash = hashlib.sha256(string_value.encode("utf-8")).hexdigest()
-        obj = get_object_or_404(StoredString, pk=sha256_hash)
-        serializer = StoredStringSerializer(obj)
-        return Response(serializer.data)
+        try:
+            obj = StoredString.objects.get(id=string_value)
+            return Response({
+                "id": obj.id,
+                "value": obj.value,
+                "properties": obj.properties
+            })
+        except StoredString.DoesNotExist:
+            return Response({"error": "String not found"}, status=status.HTTP_404_NOT_FOUND)
 
     def delete(self, request, string_value):
-        """DELETE /strings/{string_value} - Delete string"""
-        sha256_hash = hashlib.sha256(string_value.encode("utf-8")).hexdigest()
-        obj = get_object_or_404(StoredString, pk=sha256_hash)
-        obj.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        try:
+            obj = StoredString.objects.get(id=string_value)
+            obj.delete()
+            return Response({"message": "Deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
+        except StoredString.DoesNotExist:
+            return Response({"error": "String not found"}, status=status.HTTP_404_NOT_FOUND)
 
 
 class NaturalLanguageFilterView(APIView):
