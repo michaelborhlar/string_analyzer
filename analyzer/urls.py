@@ -1,7 +1,9 @@
-from rest_framework.routers import DefaultRouter
-from .views import StoredStringViewSet
+from django.urls import path
+from .views import StringAnalyzeView, StringDetailView, StringListView, NaturalLanguageFilterView
 
-router = DefaultRouter()
-router.register(r"strings", StoredStringViewSet, basename="strings")
-
-urlpatterns = router.urls
+urlpatterns = [
+    path('strings', StringAnalyzeView.as_view(), name='create-string'),
+    path('strings/<str:string_value>', StringDetailView.as_view(), name='string-detail'),
+    path('strings', StringListView.as_view(), name='list-strings'),
+    path('strings/filter-by-natural-language', NaturalLanguageFilterView.as_view(), name='natural-language-filter'),
+]
