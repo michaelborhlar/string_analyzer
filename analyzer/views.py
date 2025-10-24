@@ -63,64 +63,71 @@ class StoredStringViewSet(viewsets.ModelViewSet):
         queryset = self.filter_queryset(self.get_queryset())
         serializer = self.get_serializer(queryset, many=True)
         
-        # Get applied filters properly
+        # FIXED: Extract single values for filters_applied, not lists
         applied_filters = {}
         params = request.query_params
         
-        filter_params = ['is_palindrome', 'min_length', 'max_length', 'word_count', 'contains_character']
-        for param in filter_params:
-            value = params.get(param)  # Use .get() to get single value
-            if value is not None:
-                applied_filters[param] = value
+        if params.get('is_palindrome'):
+            applied_filters['is_palindrome'] = params.get('is_palindrome')
+        if params.get('min_length'):
+            applied_filters['min_length'] = params.get('min_length')
+        if params.get('max_length'):
+            applied_filters['max_length'] = params.get('max_length')
+        if params.get('word_count'):
+            applied_filters['word_count'] = params.get('word_count')
+        if params.get('contains_character'):
+            applied_filters['contains_character'] = params.get('contains_character')
 
         return Response({
             "data": serializer.data,
             "count": queryset.count(),
-            "filters_applied": applied_filters
+            "filters_applied": applied_filters  # Now with single values instead of lists
         })
 
     def get_queryset(self):
         qs = super().get_queryset()
         params = self.request.query_params
-        
-        # Helper function to safely get boolean from query param
-        def to_bool(param_value):
-            if param_value is None:
-                return None
-            return str(param_value).lower() in ["true", "1", "yes", "on"]
 
-        # Helper function to safely convert to int
-        def to_int(param_value):
+        def to_bool(val):
+            if val is None:
+                return None
+            return str(val).lower() in ["true", "1", "yes", "on"]
+
+        def to_int(val):
             try:
-                return int(param_value) if param_value is not None else None
+                return int(val) if val is not None else None
             except (ValueError, TypeError):
                 return None
 
-        # Apply filters using .get() to avoid list issues
+        # Apply is_palindrome filter
         is_palindrome = params.get("is_palindrome")
         if is_palindrome is not None:
             bool_value = to_bool(is_palindrome)
             if bool_value is not None:
                 qs = qs.filter(properties__is_palindrome=bool_value)
 
+        # Apply min_length filter
         min_length = params.get("min_length")
         if min_length is not None:
             min_val = to_int(min_length)
             if min_val is not None:
                 qs = qs.filter(properties__length__gte=min_val)
 
+        # Apply max_length filter
         max_length = params.get("max_length")
         if max_length is not None:
             max_val = to_int(max_length)
             if max_val is not None:
                 qs = qs.filter(properties__length__lte=max_val)
 
+        # Apply word_count filter
         word_count = params.get("word_count")
         if word_count is not None:
             count_val = to_int(word_count)
             if count_val is not None:
                 qs = qs.filter(properties__word_count=count_val)
 
+        # Apply contains_character filter
         contains_char = params.get("contains_character")
         if contains_char is not None and len(contains_char) == 1:
             qs = qs.filter(properties__character_frequency_map__has_key=contains_char)
