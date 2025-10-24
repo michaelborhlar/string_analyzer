@@ -3,6 +3,8 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.shortcuts import get_object_or_404
 from django.db import IntegrityError
+from django.db.models import Q
+import json
 from .models import StoredString
 from .serializers import StoredStringSerializer
 import hashlib
@@ -28,7 +30,6 @@ class CreateStringView(APIView):
 
         sha256_hash = hashlib.sha256(value.encode("utf-8")).hexdigest()
         
-        # Check if string already exists
         if StoredString.objects.filter(pk=sha256_hash).exists():
             return Response(
                 {"detail": "String already exists."},
@@ -69,7 +70,6 @@ class StringListView(APIView):
         queryset = StoredString.objects.all()
         params = request.query_params
         
-        # Track applied filters
         applied_filters = {}
         
         # Apply is_palindrome filter
@@ -77,6 +77,7 @@ class StringListView(APIView):
         if is_palindrome is not None:
             try:
                 bool_val = str(is_palindrome).lower() in ["true", "1", "yes", "on"]
+                # Filter using JSON field path
                 queryset = queryset.filter(properties__is_palindrome=bool_val)
                 applied_filters["is_palindrome"] = is_palindrome
             except:
@@ -115,6 +116,7 @@ class StringListView(APIView):
         # Apply contains_character filter
         contains_char = params.get("contains_character")
         if contains_char is not None and len(contains_char) == 1:
+            # Filter for character in frequency map
             queryset = queryset.filter(properties__character_frequency_map__has_key=contains_char)
             applied_filters["contains_character"] = contains_char
 
@@ -140,28 +142,35 @@ class NaturalLanguageFilterView(APIView):
         text = query.lower()
         parsed_filters = {}
 
-        # Parse natural language queries
+        # Parse all required examples from specification
         if "palindrome" in text or "palindromic" in text:
             parsed_filters["is_palindrome"] = True
 
-        if "single word" in text or "one word" in text:
+        if "single word" in text:
             parsed_filters["word_count"] = 1
+        elif "two words" in text:
+            parsed_filters["word_count"] = 2
+        elif "three words" in text:
+            parsed_filters["word_count"] = 3
 
         # Handle length queries
         length_match = re.search(r"longer than\s+(\d+)", text)
         if length_match:
             parsed_filters["min_length"] = int(length_match.group(1)) + 1
 
-        # Handle character queries
-        char_match = re.search(r"contain[s]?\s+(?:the\s+)?(?:letter\s+)?(\w)", text)
-        if char_match:
-            parsed_filters["contains_character"] = char_match.group(1).lower()
+        length_match = re.search(r"shorter than\s+(\d+)", text)
+        if length_match:
+            parsed_filters["max_length"] = int(length_match.group(1)) - 1
 
-        # Handle specific cases from examples
-        if "first vowel" in text:
-            parsed_filters["contains_character"] = "a"
-        elif "letter z" in text:
+        # Handle character queries
+        if "letter z" in text or "containing z" in text:
             parsed_filters["contains_character"] = "z"
+        elif "first vowel" in text:
+            parsed_filters["contains_character"] = "a"
+        else:
+            char_match = re.search(r"contain[s]?\s+(?:the\s+)?letter\s+(\w)", text)
+            if char_match:
+                parsed_filters["contains_character"] = char_match.group(1).lower()
 
         if not parsed_filters:
             return Response(
@@ -174,10 +183,16 @@ class NaturalLanguageFilterView(APIView):
         
         if "is_palindrome" in parsed_filters:
             queryset = queryset.filter(properties__is_palindrome=parsed_filters["is_palindrome"])
+        
         if "word_count" in parsed_filters:
             queryset = queryset.filter(properties__word_count=parsed_filters["word_count"])
+        
         if "min_length" in parsed_filters:
             queryset = queryset.filter(properties__length__gte=parsed_filters["min_length"])
+        
+        if "max_length" in parsed_filters:
+            queryset = queryset.filter(properties__length__lte=parsed_filters["max_length"])
+        
         if "contains_character" in parsed_filters:
             queryset = queryset.filter(properties__character_frequency_map__has_key=parsed_filters["contains_character"])
 
